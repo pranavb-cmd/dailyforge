@@ -74,7 +74,7 @@ if not st.session_state.logged_in:
     st.caption("Manager: pranav / manager123   |   Engineers: alice / alice123 etc.")
     st.stop()
 
-# ===================== MAIN APP =====================
+# ===================== MAIN =====================
 st.sidebar.image("https://img.icons8.com/fluency/96/fire.png", width=70)
 st.sidebar.title("DailyForge")
 st.sidebar.markdown(f"**{st.session_state.full_name}** ({st.session_state.role.upper()})")
@@ -89,7 +89,6 @@ if st.sidebar.button("Logout"):
 
 active_projects = [p["name"] for p in data["projects"] if p.get("active", True)]
 
-# ===================== MANAGER =====================
 if st.session_state.role == "manager":
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "➕ Add Task", "📋 Project Master", "👷 Engineer Master", "🔑 Change Password"])
 
@@ -137,13 +136,13 @@ if st.session_state.role == "manager":
                     st.success("Task added successfully!")
                     st.rerun()
 
-    # ==================== FIXED PROJECT MASTER ====================
+    # ==================== PROJECT MASTER (Fixed) ====================
     with tab3:
         st.title("Project Master")
         st.subheader("All Projects")
 
         for i, proj in enumerate(data["projects"]):
-            col1, col2, col3 = st.columns([3, 1.2, 1])
+            col1, col2, col3 = st.columns([3, 1.5, 1])
             status = "🟢 Active" if proj.get("active", True) else "🔴 Ended"
             col1.write(f"**{proj['name']}** — {status}")
 
@@ -153,12 +152,22 @@ if st.session_state.role == "manager":
                 st.success(f"{proj['name']} marked as Ended")
                 st.rerun()
 
-            if col3.button("🗑️ Delete", key=f"del_proj_{i}"):
+            if col3.button("🗑️ Delete", key=f"del_btn_proj_{i}"):
+                st.session_state[f"confirm_delete_proj_{i}"] = True
+                st.rerun()
+
+            # Confirmation shown only after delete button clicked
+            if st.session_state.get(f"confirm_delete_proj_{i}", False):
                 st.warning(f"Are you sure you want to **permanently delete** '{proj['name']}'?")
-                if st.button("✅ Yes, Delete Permanently", key=f"confirm_del_proj_{i}"):
+                col_yes, col_no = st.columns(2)
+                if col_yes.button("✅ Yes, Delete Permanently", key=f"yes_del_proj_{i}"):
                     del data["projects"][i]
                     save_data(data)
-                    st.success("Project deleted permanently")
+                    st.success("Project deleted permanently!")
+                    del st.session_state[f"confirm_delete_proj_{i}"]
+                    st.rerun()
+                if col_no.button("Cancel", key=f"cancel_del_proj_{i}"):
+                    del st.session_state[f"confirm_delete_proj_{i}"]
                     st.rerun()
 
         new_project = st.text_input("Add New Project")
@@ -169,7 +178,7 @@ if st.session_state.role == "manager":
                 st.success("Project added")
                 st.rerun()
 
-    # ==================== FIXED ENGINEER MASTER ====================
+    # ==================== ENGINEER MASTER (Fixed) ====================
     with tab4:
         st.title("Engineer Master")
         st.subheader("All Engineers")
@@ -177,12 +186,21 @@ if st.session_state.role == "manager":
         for i, eng in enumerate(data["engineers"]):
             col1, col2 = st.columns([4, 1])
             col1.write(f"• {eng}")
-            if col2.button("🗑️ Delete", key=f"del_eng_{i}"):
+            if col2.button("🗑️ Delete", key=f"del_btn_eng_{i}"):
+                st.session_state[f"confirm_delete_eng_{i}"] = True
+                st.rerun()
+
+            if st.session_state.get(f"confirm_delete_eng_{i}", False):
                 st.warning(f"Are you sure you want to permanently delete '{eng}'?")
-                if st.button("✅ Yes, Delete", key=f"confirm_del_eng_{i}"):
+                col_yes, col_no = st.columns(2)
+                if col_yes.button("✅ Yes, Delete", key=f"yes_del_eng_{i}"):
                     del data["engineers"][i]
                     save_data(data)
-                    st.success("Engineer deleted")
+                    st.success("Engineer deleted!")
+                    del st.session_state[f"confirm_delete_eng_{i}"]
+                    st.rerun()
+                if col_no.button("Cancel", key=f"cancel_del_eng_{i}"):
+                    del st.session_state[f"confirm_delete_eng_{i}"]
                     st.rerun()
 
         new_eng = st.text_input("Add New Engineer")
@@ -195,7 +213,6 @@ if st.session_state.role == "manager":
 
     with tab5:
         st.title("Change Password")
-        old_pass = st.text_input("Current Password", type="password")
         new_pass = st.text_input("New Password", type="password")
         confirm_pass = st.text_input("Confirm New Password", type="password")
         
@@ -208,10 +225,9 @@ if st.session_state.role == "manager":
                 save_data(data)
                 st.success("Password changed successfully!")
             else:
-                st.error("Passwords do not match")
+                st.error("Passwords do not match or empty")
 
-# ===================== ENGINEER VIEW =====================
-else:
+else:  # Engineer View
     st.title(f"👷 My Tasks - {current_date_str}")
     my_tasks = [t for t in data.get("tasks", []) if t.get("date") == current_date_str and t.get("assigned") == st.session_state.full_name]
     
@@ -234,4 +250,4 @@ else:
     else:
         st.info("No tasks assigned to you on this date.")
 
-st.caption("DailyForge • Delete now uses separate confirmation button to avoid Streamlit rerun issues")
+st.caption("DailyForge • Delete fixed with proper confirmation using session_state")
