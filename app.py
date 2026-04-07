@@ -73,15 +73,13 @@ if "logged_in" not in st.session_state:
     st.session_state.role = None
     st.session_state.full_name = None
 
-# ===================== CLEAN LOGIN SCREEN (No Credentials Shown) =====================
+# ===================== CLEAN LOGIN =====================
 if not st.session_state.logged_in:
     st.title("🔥 DailyForge")
     st.markdown("### Project Task Dashboard")
-    
     st.markdown("#### Login")
 
     col1, col2 = st.columns([1, 1])
-    
     with col1:
         username = st.text_input("Username", placeholder="Enter your username")
         password = st.text_input("Password", type="password")
@@ -103,15 +101,12 @@ if not st.session_state.logged_in:
                 st.error("❌ Invalid username or password")
 
     with col2:
-        st.info("""
-        **Need access?**  
-        Contact your administrator to get your login credentials.
-        """)
+        st.info("Contact your administrator if you don't have login credentials.")
 
     st.caption("Only authorized users can access the dashboard.")
     st.stop()
 
-# ===================== REST OF THE APP =====================
+# ===================== SIDEBAR =====================
 st.sidebar.image("https://img.icons8.com/fluency/96/fire.png", width=70)
 st.sidebar.title("DailyForge")
 st.sidebar.markdown(f"**{st.session_state.full_name}** ({st.session_state.role.upper()})")
@@ -123,7 +118,7 @@ if st.sidebar.button("Logout"):
 
 active_projects = [p["name"] for p in data["projects"] if p.get("active", True)]
 
-# Manager Dashboard with Date Range
+# ===================== MANAGER VIEW =====================
 if st.session_state.role == "manager":
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Dashboard", "➕ Add Task", "📋 Project Master", 
                                                   "👷 Engineer Master", "👨‍💼 Manager Master", "🔑 Change Password"])
@@ -149,20 +144,18 @@ if st.session_state.role == "manager":
             from_str = from_date.strftime("%Y-%m-%d")
             to_str = to_date.strftime("%Y-%m-%d")
             
-            tasks_list = []
-            for t in data.get("tasks", []):
-                if from_str <= t.get("date", "") <= to_str:
-                    progress = t.get("progress", 0)
-                    if (status_filter == "All Tasks") or \
-                       (status_filter == "Only Pending" and progress == 0) or \
-                       (status_filter == "Only In Progress" and 0 < progress < 100):
-                        tasks_list.append(t)
+            tasks_list = [t for t in data.get("tasks", []) 
+                         if from_str <= t.get("date", "") <= to_str]
+            
+            if status_filter == "Only Pending":
+                tasks_list = [t for t in tasks_list if t.get("progress", 0) == 0]
+            elif status_filter == "Only In Progress":
+                tasks_list = [t for t in tasks_list if 0 < t.get("progress", 0) < 100]
 
         if tasks_list:
             df = pd.DataFrame(tasks_list)
             df["Progress %"] = df["progress"]
-            df["Status"] = df["progress"].apply(lambda x: 
-                "✅ Completed" if x == 100 else "🔄 In Progress" if x > 0 else "⏳ Pending")
+            df["Status"] = df["progress"].apply(lambda x: "✅ Completed" if x == 100 else "🔄 In Progress" if x > 0 else "⏳ Pending")
             
             def color_row(row):
                 if row['progress'] == 100:
@@ -188,9 +181,8 @@ if st.session_state.role == "manager":
             c4.metric("Pending", pending)
             st.metric("Average Progress", f"{avg}%")
         else:
-            st.info("No tasks found in the selected range/filter.")
+            st.info("No tasks found.")
 
-    # Add Task Tab
     with tab2:
         st.title("➕ Add New Task Target")
         with st.form("add_task_form", clear_on_submit=True):
@@ -211,26 +203,117 @@ if st.session_state.role == "manager":
                     }
                     data["tasks"].append(new_task)
                     save_data(data)
-                    st.success("Task added successfully!")
+                    st.success("✅ Task added successfully!")
                     st.rerun()
 
-    # Other tabs (Project Master, Engineer Master, etc.) - Keep them as they were in previous version
-    # For brevity, I'm showing only the important change. You can keep the rest same.
+    with tab3:   # Project Master - FIXED
+        st.title("📋 Project Master")
+        for i, proj in enumerate(data["projects"]):
+            col1, col2, col3 = st.columns([3, 1.5, 1])
+            status = "🟢 Active" if proj.get("active", True) else "🔴 Ended"
+            col1.write(f"**{proj['name']}** — {status}")
+            if col2.button("Mark as Ended", key=f"end_proj_{i}"):
+                data["projects"][i]["active"] = False
+                save_data(data)
+                st.success(f"{proj['name']} marked as Ended")
+                st.rerun()
+            if col3.button("🗑️ Delete", key=f"del_proj_{i}"):
+                st.session_state[f"confirm_proj_{i}"] = True
+                st.rerun()
+            if st.session_state.get(f"confirm_proj_{i}", False):
+                st.warning(f"Delete '{proj['name']}' permanently?")
+                col_yes, col_no = st.columns(2)
+                if col_yes.button("Yes, Delete", key=f"yes_proj_{i}"):
+                    del data["projects"][i]
+                    save_data(data)
+                    st.success("Project deleted successfully!")
+                    del st.session_state[f"confirm_proj_{i}"]
+                    st.rerun()
+                if col_no.button("Cancel", key=f"cancel_proj_{i}"):
+                    del st.session_state[f"confirm_proj_{i}"]
+                    st.rerun()
 
-    with tab3:
-        st.title("Project Master")
-        st.info("Project Master functionality remains the same.")
+        new_project = st.text_input("Add New Project Name")
+        if st.button("Add Project"):
+            if new_project.strip():
+                data["projects"].append({"name": new_project.strip(), "active": True})
+                save_data(data)
+                st.success("✅ New Project added successfully!")
+                st.rerun()
 
-    with tab4:
-        st.title("Engineer Master")
-        st.info("Engineer Master functionality remains the same.")
+    with tab4:   # Engineer Master - FIXED
+        st.title("👷 Engineer Master")
+        for i, eng in enumerate(data["engineers"]):
+            col1, col2 = st.columns([4, 1])
+            col1.write(f"• {eng}")
+            if col2.button("🗑️ Delete", key=f"del_eng_{i}"):
+                st.session_state[f"confirm_eng_{i}"] = True
+                st.rerun()
+            if st.session_state.get(f"confirm_eng_{i}", False):
+                st.warning(f"Delete '{eng}' permanently?")
+                col_yes, col_no = st.columns(2)
+                if col_yes.button("Yes, Delete", key=f"yes_eng_{i}"):
+                    for u, info in list(data["users"]["engineer"].items()):
+                        if info["name"] == eng:
+                            del data["users"]["engineer"][u]
+                            break
+                    del data["engineers"][i]
+                    save_data(data)
+                    st.success("✅ Engineer deleted successfully!")
+                    del st.session_state[f"confirm_eng_{i}"]
+                    st.rerun()
+                if col_no.button("Cancel", key=f"cancel_eng_{i}"):
+                    del st.session_state[f"confirm_eng_{i}"]
+                    st.rerun()
 
-    with tab5:
-        st.title("Manager Master")
-        st.info("Manager Master functionality remains the same.")
+        st.subheader("Add New Engineer")
+        with st.form("add_engineer_form", clear_on_submit=True):
+            full_name = st.text_input("Full Name")
+            username = st.text_input("Login Username (lowercase recommended)")
+            default_password = st.text_input("Default Password", value="123456", type="password")
+            if st.form_submit_button("✅ Add Engineer"):
+                if full_name.strip() and username.strip():
+                    u = username.lower().strip()
+                    if u in data["users"]["manager"] or u in data["users"]["engineer"]:
+                        st.error("Username already exists!")
+                    else:
+                        data["engineers"].append(full_name.strip())
+                        data["users"]["engineer"][u] = {
+                            "password": default_password,
+                            "role": "engineer",
+                            "name": full_name.strip()
+                        }
+                        save_data(data)
+                        st.success(f"✅ Engineer **{full_name}** added successfully!\nUsername: `{u}`")
+                        st.rerun()
+
+    with tab5:   # Manager Master - FIXED
+        st.title("👨‍💼 Manager Master")
+        for uname, info in data["users"]["manager"].items():
+            st.write(f"• **{info['name']}** (Username: `{uname}`)")
+
+        st.subheader("Add New Manager")
+        with st.form("add_manager_form", clear_on_submit=True):
+            manager_name = st.text_input("Full Name")
+            manager_username = st.text_input("Login Username")
+            manager_password = st.text_input("Password", value="manager123", type="password")
+            if st.form_submit_button("✅ Add Manager"):
+                if manager_name.strip() and manager_username.strip():
+                    mu = manager_username.lower().strip()
+                    if mu in data["users"]["manager"] or mu in data["users"]["engineer"]:
+                        st.error("Username already exists!")
+                    else:
+                        data["users"]["manager"][mu] = {
+                            "password": manager_password,
+                            "role": "manager",
+                            "name": manager_name.strip()
+                        }
+                        save_data(data)
+                        st.success(f"✅ New Manager **{manager_name}** added successfully!\nUsername: `{mu}`")
+                        st.rerun()
 
     with tab6:
-        st.title("Change Password")
+        st.title("🔑 Change Password")
         np = st.text_input("New Password", type="password")
         cp = st.text_input("Confirm Password", type="password")
         if st.button("Update Password"):
@@ -268,4 +351,4 @@ else:
     else:
         st.info("No tasks assigned to you.")
 
-st.caption("DailyForge • Secure Login")
+st.caption("DailyForge • All masters are now fully functional")
