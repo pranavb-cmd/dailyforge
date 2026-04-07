@@ -4,12 +4,10 @@ from datetime import datetime
 import json
 import os
 
-# ===================== CONFIG =====================
 DATA_FILE = "daily_tasks.json"
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== LOAD / SAVE =====================
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -17,7 +15,6 @@ def load_data():
                 return json.load(f)
         except:
             pass
-    # Default structure
     return {
         "tasks": [],
         "projects": [
@@ -46,7 +43,6 @@ def save_data(data):
 
 data = load_data()
 
-# ===================== SESSION STATE =====================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
@@ -78,7 +74,7 @@ if not st.session_state.logged_in:
     st.caption("Manager: pranav / manager123   |   Engineers: alice / alice123 etc.")
     st.stop()
 
-# ===================== LOGGED IN =====================
+# ===================== MAIN APP =====================
 st.sidebar.image("https://img.icons8.com/fluency/96/fire.png", width=70)
 st.sidebar.title("DailyForge")
 st.sidebar.markdown(f"**{st.session_state.full_name}** ({st.session_state.role.upper()})")
@@ -91,16 +87,15 @@ if st.sidebar.button("Logout"):
         del st.session_state[key]
     st.rerun()
 
-# Active projects only for dropdown
-active_projects = [p["name"] for p in data["projects"] if p["active"]]
+active_projects = [p["name"] for p in data["projects"] if p.get("active", True)]
 
-# ===================== MANAGER INTERFACE =====================
+# ===================== MANAGER =====================
 if st.session_state.role == "manager":
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "➕ Add Task", "📋 Project Master", "👷 Engineer Master", "🔑 Change Password"])
 
     with tab1:
         st.title(f"Dashboard - {current_date_str}")
-        tasks_today = [t for t in data.get("tasks", []) if t["date"] == current_date_str]
+        tasks_today = [t for t in data.get("tasks", []) if t.get("date") == current_date_str]
         total = len(tasks_today)
         completed = sum(1 for t in tasks_today if t.get("progress", 0) == 100)
         avg = sum(t.get("progress", 0) for t in tasks_today) // total if total else 0
@@ -118,7 +113,7 @@ if st.session_state.role == "manager":
             st.dataframe(df[["project", "description", "assigned", "Progress", "Status", "last_updated", "notes"]], 
                         use_container_width=True, hide_index=True)
 
-    with tab2:  # Add Task
+    with tab2:
         st.title("Add New Task Target")
         with st.form("add_task_form", clear_on_submit=True):
             project = st.selectbox("Project", active_projects if active_projects else ["No active projects"])
@@ -142,23 +137,25 @@ if st.session_state.role == "manager":
                     st.success("Task added successfully!")
                     st.rerun()
 
-    with tab3:  # Project Master
+    # ==================== FIXED PROJECT MASTER ====================
+    with tab3:
         st.title("Project Master")
         st.subheader("All Projects")
-        
+
         for i, proj in enumerate(data["projects"]):
-            col1, col2, col3 = st.columns([3, 1, 1])
-            status = "🟢 Active" if proj["active"] else "🔴 Ended"
+            col1, col2, col3 = st.columns([3, 1.2, 1])
+            status = "🟢 Active" if proj.get("active", True) else "🔴 Ended"
             col1.write(f"**{proj['name']}** — {status}")
-            
-            if col2.button("Mark Ended", key=f"end_{i}"):
+
+            if col2.button("Mark as Ended", key=f"end_proj_{i}"):
                 data["projects"][i]["active"] = False
                 save_data(data)
                 st.success(f"{proj['name']} marked as Ended")
                 st.rerun()
-            
-            if col3.button("Delete", key=f"del_{i}"):
-                if st.checkbox(f"Confirm delete {proj['name']}?", key=f"conf_{i}"):
+
+            if col3.button("🗑️ Delete", key=f"del_proj_{i}"):
+                st.warning(f"Are you sure you want to **permanently delete** '{proj['name']}'?")
+                if st.button("✅ Yes, Delete Permanently", key=f"confirm_del_proj_{i}"):
                     del data["projects"][i]
                     save_data(data)
                     st.success("Project deleted permanently")
@@ -172,13 +169,17 @@ if st.session_state.role == "manager":
                 st.success("Project added")
                 st.rerun()
 
-    with tab4:  # Engineer Master
+    # ==================== FIXED ENGINEER MASTER ====================
+    with tab4:
         st.title("Engineer Master")
+        st.subheader("All Engineers")
+
         for i, eng in enumerate(data["engineers"]):
             col1, col2 = st.columns([4, 1])
             col1.write(f"• {eng}")
-            if col2.button("Delete", key=f"eng_del_{i}"):
-                if st.checkbox(f"Confirm delete {eng}?", key=f"eng_conf_{i}"):
+            if col2.button("🗑️ Delete", key=f"del_eng_{i}"):
+                st.warning(f"Are you sure you want to permanently delete '{eng}'?")
+                if st.button("✅ Yes, Delete", key=f"confirm_del_eng_{i}"):
                     del data["engineers"][i]
                     save_data(data)
                     st.success("Engineer deleted")
@@ -192,7 +193,7 @@ if st.session_state.role == "manager":
                 st.success("Engineer added")
                 st.rerun()
 
-    with tab5:  # Change Password
+    with tab5:
         st.title("Change Password")
         old_pass = st.text_input("Current Password", type="password")
         new_pass = st.text_input("New Password", type="password")
@@ -200,7 +201,6 @@ if st.session_state.role == "manager":
         
         if st.button("Update Password"):
             if new_pass == confirm_pass and new_pass:
-                # Update password
                 if st.session_state.role == "manager":
                     data["users"]["manager"][st.session_state.username]["password"] = new_pass
                 else:
@@ -208,9 +208,9 @@ if st.session_state.role == "manager":
                 save_data(data)
                 st.success("Password changed successfully!")
             else:
-                st.error("Passwords do not match or empty")
+                st.error("Passwords do not match")
 
-# ===================== ENGINEER INTERFACE =====================
+# ===================== ENGINEER VIEW =====================
 else:
     st.title(f"👷 My Tasks - {current_date_str}")
     my_tasks = [t for t in data.get("tasks", []) if t.get("date") == current_date_str and t.get("assigned") == st.session_state.full_name]
@@ -229,10 +229,9 @@ else:
                             t["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                             break
                     save_data(data)
-                    st.success("Updated!")
+                    st.success("Updated successfully!")
                     st.rerun()
     else:
         st.info("No tasks assigned to you on this date.")
 
-# Footer
-st.caption("DailyForge • Data saved automatically • Projects can be marked Ended or Deleted")
+st.caption("DailyForge • Delete now uses separate confirmation button to avoid Streamlit rerun issues")
