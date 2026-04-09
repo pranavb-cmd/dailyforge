@@ -1,79 +1,102 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import json
-import os
-
-DATA_FILE = "daily_tasks.json"
+import gspread
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== SAFE LOAD DATA =====================
+# ===================== GOOGLE SHEETS CONNECTION =====================
+@st.cache_resource
+def get_google_sheet():
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    return gc.open_by_url(st.secrets["spreadsheet_url"])
+
 def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-                loaded.setdefault("tasks", [])
-                loaded.setdefault("projects", [
-                    {"name": "Mobile Banking App", "active": True},
-                    {"name": "E-commerce Platform", "active": True},
-                    {"name": "Internal CRM", "active": True},
-                    {"name": "Payment Gateway", "active": True}
-                ])
-                loaded.setdefault("engineers", ["Alice Sharma", "Rahul Verma", "Priya Patel", "Arjun Rao", "Neha Gupta", "Vikram Singh"])
-                loaded.setdefault("users", {
-                    "manager": {"pranav": {"password": "manager123", "role": "manager", "name": "PRANAV"}},
-                    "engineer": {
-                        "alice": {"password": "alice123", "role": "engineer", "name": "Alice Sharma"},
-                        "rahul": {"password": "rahul123", "role": "engineer", "name": "Rahul Verma"},
-                        "priya": {"password": "priya123", "role": "engineer", "name": "Priya Patel"},
-                        "arjun": {"password": "arjun123", "role": "engineer", "name": "Arjun Rao"},
-                        "neha": {"password": "neha123", "role": "engineer", "name": "Neha Gupta"},
-                        "vikram": {"password": "vikram123", "role": "engineer", "name": "Vikram Singh"}
-                    }
-                })
-                return loaded
-        except:
-            pass
+    sheet = get_google_sheet()
+    data = {"tasks": [], "projects": [], "engineers": [], "users": {"manager": {}, "engineer": {}}}
     
-    default_data = {
-        "tasks": [],
-        "projects": [
-            {"name": "Mobile Banking App", "active": True},
-            {"name": "E-commerce Platform", "active": True},
-            {"name": "Internal CRM", "active": True},
-            {"name": "Payment Gateway", "active": True}
-        ],
-        "engineers": ["Alice Sharma", "Rahul Verma", "Priya Patel", "Arjun Rao", "Neha Gupta", "Vikram Singh"],
-        "users": {
-            "manager": {"pranav": {"password": "manager123", "role": "manager", "name": "PRANAV"}},
-            "engineer": {
-                "alice": {"password": "alice123", "role": "engineer", "name": "Alice Sharma"},
-                "rahul": {"password": "rahul123", "role": "engineer", "name": "Rahul Verma"},
-                "priya": {"password": "priya123", "role": "engineer", "name": "Priya Patel"},
-                "arjun": {"password": "arjun123", "role": "engineer", "name": "Arjun Rao"},
-                "neha": {"password": "neha123", "role": "engineer", "name": "Neha Gupta"},
-                "vikram": {"password": "vikram123", "role": "engineer", "name": "Vikram Singh"}
-            }
-        }
-    }
-    save_data(default_data)
-    return default_data
+    try:
+        # Tasks
+        df = pd.DataFrame(sheet.worksheet("Tasks").get_all_records())
+        data["tasks"] = df.to_dict('records') if not df.empty else []
+        
+        # Projects
+        df = pd.DataFrame(sheet.worksheet("Projects").get_all_records())
+        data["projects"] = df.to_dict('records') if not df.empty else []
+        
+        # Engineers
+        df = pd.DataFrame(sheet.worksheet("Engineers").get_all_records())
+        data["engineers"] = df['name'].tolist() if not df.empty else []
+        
+        # Users
+        df = pd.DataFrame(sheet.worksheet("Users").get_all_records())
+        for _, row in df.iterrows():
+            role = str(row.get('role', '')).strip()
+            username = str(row.get('username', '')).strip()
+            if role and username:
+                data["users"][role][username] = {
+                    "password": str(row.get('password', '')),
+                    "role": role,
+                    "name": str(row.get('name', ''))
+                }
+    except:
+        pass  # Use defaults if sheet is empty
+    
+    return data
 
 def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    try:
+        sheet = get_google_sheet()
+        
+        # Tasks
+        if data["tasks"]:
+            df = pd.DataFrame(data["tasks"])
+            ws = sheet.worksheet("Tasks")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        # Projects
+        if data["projects"]:
+            df = pd.DataFrame(data["projects"])
+            ws = sheet.worksheet("Projects")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        # Engineers
+        if data["engineers"]:
+            df = pd.DataFrame({"name": data["engineers"]})
+            ws = sheet.worksheet("Engineers")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        # Users
+        users_list = []
+        for role, user_dict in data["users"].items():
+            for username, info in user_dict.items():
+                users_list.append({
+                    "role": role,
+                    "username": username,
+                    "password": info.get("password", ""),
+                    "name": info.get("name", "")
+                })
+        if users_list:
+            df = pd.DataFrame(users_list)
+            ws = sheet.worksheet("Users")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        return True
+    except Exception as e:
+        st.error(f"Save failed: {str(e)}")
+        return False
 
+# Load data
 data = load_data()
 
+# ===================== LOGIN =====================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-    st.session_state.username = None
-    st.session_state.role = None
-    st.session_state.full_name = None
 
-# ===================== CLEAN LOGIN =====================
 if not st.session_state.logged_in:
     st.title("🔥 DailyForge")
     st.markdown("### Project Task Dashboard")
@@ -144,9 +167,7 @@ if st.session_state.role == "manager":
             from_str = from_date.strftime("%Y-%m-%d")
             to_str = to_date.strftime("%Y-%m-%d")
             
-            tasks_list = [t for t in data.get("tasks", []) 
-                         if from_str <= t.get("date", "") <= to_str]
-            
+            tasks_list = [t for t in data.get("tasks", []) if from_str <= t.get("date", "") <= to_str]
             if status_filter == "Only Pending":
                 tasks_list = [t for t in tasks_list if t.get("progress", 0) == 0]
             elif status_filter == "Only In Progress":
@@ -202,11 +223,11 @@ if st.session_state.role == "manager":
                         "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
                     }
                     data["tasks"].append(new_task)
-                    save_data(data)
-                    st.success("✅ Task added successfully!")
+                    if save_data(data):
+                        st.success("✅ Task added successfully!")
                     st.rerun()
 
-    with tab3:   # Project Master - FIXED
+    with tab3:  # Project Master
         st.title("📋 Project Master")
         for i, proj in enumerate(data["projects"]):
             col1, col2, col3 = st.columns([3, 1.5, 1])
@@ -221,7 +242,7 @@ if st.session_state.role == "manager":
                 st.session_state[f"confirm_proj_{i}"] = True
                 st.rerun()
             if st.session_state.get(f"confirm_proj_{i}", False):
-                st.warning(f"Delete '{proj['name']}' permanently?")
+                st.warning("Delete permanently?")
                 col_yes, col_no = st.columns(2)
                 if col_yes.button("Yes, Delete", key=f"yes_proj_{i}"):
                     del data["projects"][i]
@@ -241,7 +262,7 @@ if st.session_state.role == "manager":
                 st.success("✅ New Project added successfully!")
                 st.rerun()
 
-    with tab4:   # Engineer Master - FIXED
+    with tab4:  # Engineer Master
         st.title("👷 Engineer Master")
         for i, eng in enumerate(data["engineers"]):
             col1, col2 = st.columns([4, 1])
@@ -250,7 +271,7 @@ if st.session_state.role == "manager":
                 st.session_state[f"confirm_eng_{i}"] = True
                 st.rerun()
             if st.session_state.get(f"confirm_eng_{i}", False):
-                st.warning(f"Delete '{eng}' permanently?")
+                st.warning("Delete permanently?")
                 col_yes, col_no = st.columns(2)
                 if col_yes.button("Yes, Delete", key=f"yes_eng_{i}"):
                     for u, info in list(data["users"]["engineer"].items()):
@@ -269,7 +290,7 @@ if st.session_state.role == "manager":
         st.subheader("Add New Engineer")
         with st.form("add_engineer_form", clear_on_submit=True):
             full_name = st.text_input("Full Name")
-            username = st.text_input("Login Username (lowercase recommended)")
+            username = st.text_input("Login Username (lowercase)")
             default_password = st.text_input("Default Password", value="123456", type="password")
             if st.form_submit_button("✅ Add Engineer"):
                 if full_name.strip() and username.strip():
@@ -287,7 +308,7 @@ if st.session_state.role == "manager":
                         st.success(f"✅ Engineer **{full_name}** added successfully!\nUsername: `{u}`")
                         st.rerun()
 
-    with tab5:   # Manager Master - FIXED
+    with tab5:  # Manager Master
         st.title("👨‍💼 Manager Master")
         for uname, info in data["users"]["manager"].items():
             st.write(f"• **{info['name']}** (Username: `{uname}`)")
@@ -313,7 +334,7 @@ if st.session_state.role == "manager":
                         st.rerun()
 
     with tab6:
-        st.title("🔑 Change Password")
+        st.title("Change Password")
         np = st.text_input("New Password", type="password")
         cp = st.text_input("Confirm Password", type="password")
         if st.button("Update Password"):
@@ -351,4 +372,4 @@ else:
     else:
         st.info("No tasks assigned to you.")
 
-st.caption("DailyForge • All masters are now fully functional")
+st.caption("DailyForge • Google Sheets Persistent")
