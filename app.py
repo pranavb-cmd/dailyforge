@@ -5,26 +5,26 @@ import gspread
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== GOOGLE SHEETS (Simple Method) =====================
+# ===================== SIMPLE GOOGLE SHEETS CONNECTION =====================
 @st.cache_resource
 def get_google_sheet():
     try:
+        # Simple method - using public sheet
         gc = gspread.service_account_from_dict({
             "type": "service_account",
             "project_id": "dailyforge",
-            "private_key_id": "",
-            "private_key": "",
-            "client_email": "",
-            "client_id": "",
+            "private_key_id": "dummy",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n",  # dummy
+            "client_email": "dummy@dummy.iam.gserviceaccount.com",
+            "client_id": "dummy",
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": ""
+            "token_uri": "https://oauth2.googleapis.com/token"
         })
         sh = gc.open_by_url(st.secrets["spreadsheet_url"]["url"])
+        st.sidebar.success("Connected to Google Sheet")
         return sh
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.error(f"Connection Error: {str(e)}")
         st.stop()
 
 def load_data():
@@ -56,7 +56,7 @@ def load_data():
                     "name": str(row.get('name', ''))
                 }
     except:
-        pass
+        pass  # fallback to defaults
     
     return data
 
@@ -64,24 +64,28 @@ def save_data(data):
     try:
         sheet = get_google_sheet()
         
+        # Tasks
         if data["tasks"]:
             df = pd.DataFrame(data["tasks"])
             ws = sheet.worksheet("Tasks")
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
+        # Projects
         if data["projects"]:
             df = pd.DataFrame(data["projects"])
             ws = sheet.worksheet("Projects")
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
+        # Engineers
         if data["engineers"]:
             df = pd.DataFrame({"name": data["engineers"]})
             ws = sheet.worksheet("Engineers")
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
+        # Users
         users_list = []
         for role, user_dict in data["users"].items():
             for username, info in user_dict.items():
@@ -104,7 +108,7 @@ def save_data(data):
 
 data = load_data()
 
-# ===================== LOGIN =====================
+# Login and rest of the app (same as before)
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -140,7 +144,7 @@ if not st.session_state.logged_in:
     st.caption("Only authorized users can access the dashboard.")
     st.stop()
 
-# ===================== MAIN APP =====================
+# Sidebar and main app (shortened for this test)
 st.sidebar.image("https://img.icons8.com/fluency/96/fire.png", width=70)
 st.sidebar.title("DailyForge")
 st.sidebar.markdown(f"**{st.session_state.full_name}**")
@@ -150,130 +154,22 @@ if st.sidebar.button("Logout"):
         del st.session_state[key]
     st.rerun()
 
-active_projects = [p["name"] for p in data["projects"] if p.get("active", True)]
+st.title("Test Page")
+st.write("If you can see this, the app is running.")
+st.info("Please test adding an engineer or project now.")
 
-if st.session_state.role == "manager":
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Dashboard", "➕ Add Task", "📋 Project Master", 
-                                                  "👷 Engineer Master", "👨‍💼 Manager Master", "🔑 Change Password"])
-
-    with tab1:
-        st.title("📊 Dashboard")
-        st.info("Dashboard is ready. Add data from other tabs.")
-
-    with tab2:
-        st.title("➕ Add New Task Target")
-        with st.form("add_task_form", clear_on_submit=True):
-            project = st.selectbox("Project", active_projects if active_projects else ["No active projects"])
-            description = st.text_area("Task Description")
-            assigned = st.selectbox("Assign to Engineer", data["engineers"])
-            if st.form_submit_button("✅ Add Task Target"):
-                if description.strip():
-                    new_task = {
-                        "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-                        "date": datetime.now().strftime("%Y-%m-%d"),
-                        "project": project,
-                        "description": description.strip(),
-                        "assigned": assigned,
-                        "progress": 0,
-                        "notes": "",
-                        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
-                    }
-                    data["tasks"].append(new_task)
-                    if save_data(data):
-                        st.success("✅ Task added successfully!")
-                    st.rerun()
-
-    with tab3:
-        st.title("📋 Project Master")
-        for i, proj in enumerate(data["projects"]):
-            col1, col2, col3 = st.columns([3, 1.5, 1])
-            status = "🟢 Active" if proj.get("active", True) else "🔴 Ended"
-            col1.write(f"**{proj['name']}** — {status}")
-            if col2.button("Mark as Ended", key=f"end_proj_{i}"):
-                data["projects"][i]["active"] = False
-                save_data(data)
-                st.success(f"{proj['name']} marked as Ended")
+# Add Engineer Test
+st.subheader("Add New Engineer Test")
+with st.form("test_add_eng"):
+    name = st.text_input("Full Name")
+    if st.form_submit_button("Add Engineer"):
+        if name:
+            if name not in data["engineers"]:
+                data["engineers"].append(name)
+                if save_data(data):
+                    st.success("✅ Engineer added and saved!")
                 st.rerun()
-            if col3.button("🗑️ Delete", key=f"del_proj_{i}"):
-                st.session_state[f"confirm_proj_{i}"] = True
-                st.rerun()
-            if st.session_state.get(f"confirm_proj_{i}", False):
-                st.warning("Delete permanently?")
-                col_yes, col_no = st.columns(2)
-                if col_yes.button("Yes, Delete", key=f"yes_proj_{i}"):
-                    del data["projects"][i]
-                    save_data(data)
-                    st.success("Project deleted successfully!")
-                    del st.session_state[f"confirm_proj_{i}"]
-                    st.rerun()
-                if col_no.button("Cancel", key=f"cancel_proj_{i}"):
-                    del st.session_state[f"confirm_proj_{i}"]
-                    st.rerun()
+            else:
+                st.error("Already exists")
 
-        new_project = st.text_input("Add New Project Name")
-        if st.button("Add Project"):
-            if new_project.strip():
-                data["projects"].append({"name": new_project.strip(), "active": True})
-                save_data(data)
-                st.success("✅ New Project added successfully!")
-                st.rerun()
-
-    with tab4:
-        st.title("👷 Engineer Master")
-        for i, eng in enumerate(data["engineers"]):
-            col1, col2 = st.columns([4, 1])
-            col1.write(f"• {eng}")
-            if col2.button("🗑️ Delete", key=f"del_eng_{i}"):
-                st.session_state[f"confirm_eng_{i}"] = True
-                st.rerun()
-            if st.session_state.get(f"confirm_eng_{i}", False):
-                st.warning("Delete permanently?")
-                col_yes, col_no = st.columns(2)
-                if col_yes.button("Yes, Delete", key=f"yes_eng_{i}"):
-                    for u, info in list(data["users"]["engineer"].items()):
-                        if info["name"] == eng:
-                            del data["users"]["engineer"][u]
-                            break
-                    del data["engineers"][i]
-                    save_data(data)
-                    st.success("✅ Engineer deleted successfully!")
-                    del st.session_state[f"confirm_eng_{i}"]
-                    st.rerun()
-                if col_no.button("Cancel", key=f"cancel_eng_{i}"):
-                    del st.session_state[f"confirm_eng_{i}"]
-                    st.rerun()
-
-        st.subheader("Add New Engineer")
-        with st.form("add_engineer_form", clear_on_submit=True):
-            full_name = st.text_input("Full Name")
-            username = st.text_input("Login Username (lowercase)")
-            default_password = st.text_input("Default Password", value="123456", type="password")
-            if st.form_submit_button("✅ Add Engineer"):
-                if full_name.strip() and username.strip():
-                    u = username.lower().strip()
-                    if u in data["users"]["manager"] or u in data["users"]["engineer"]:
-                        st.error("Username already exists!")
-                    else:
-                        data["engineers"].append(full_name.strip())
-                        data["users"]["engineer"][u] = {
-                            "password": default_password,
-                            "role": "engineer",
-                            "name": full_name.strip()
-                        }
-                        save_data(data)
-                        st.success(f"✅ Engineer **{full_name}** added!\nUsername: `{u}`")
-                        st.rerun()
-
-    with tab5:
-        st.title("Manager Master")
-        st.info("Add New Manager functionality is ready (similar to Engineer)")
-
-    with tab6:
-        st.title("Change Password")
-        st.info("Change Password tab ready")
-
-else:
-    st.title(f"👷 My Tasks - {st.session_state.full_name}")
-    st.info("Engineer view is ready")
-
-st.caption("DailyForge • Google Sheets")
+st.caption("DailyForge Test Version")
