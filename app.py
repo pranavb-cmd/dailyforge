@@ -2,15 +2,21 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== SIMPLE GOOGLE SHEET CONNECTION =====================
+# ===================== GOOGLE SHEETS CONNECTION (Using Secrets) =====================
 @st.cache_resource
 def get_google_sheet():
     try:
-        # Simple public access method
-        gc = gspread.service_account()
+        # Create credentials from secrets
+        creds_dict = st.secrets["gcp_service_account"]
+        credentials = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        )
+        gc = gspread.authorize(credentials)
         sh = gc.open_by_url(st.secrets["spreadsheet_url"]["url"])
         st.sidebar.success("✅ Connected to Google Sheet")
         return sh
