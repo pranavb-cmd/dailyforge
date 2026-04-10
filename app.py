@@ -1,94 +1,66 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import gspread
+import requests
+import json
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== GOOGLE SHEETS CONNECTION =====================
-@st.cache_resource
-def get_google_sheet():
-    try:
-        gc = gspread.service_account()
-        sh = gc.open_by_url(st.secrets["spreadsheet_url"]["url"])
-        st.sidebar.success("✅ Connected to Google Sheet")
-        return sh
-    except Exception as e:
-        st.error(f"Google Sheet Connection Error: {str(e)}")
-        st.stop()
+# ===================== JSONBIN CONFIG =====================
+BIN_ID = "69d878a136566621a898e722"
+MASTER_KEY = "$2a$10$NSKmpUiTMsoarXkJeNDTReI6DkE6/OsW0tmRFImAumbDsd5I3aSL2"
+API_URL = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
+
+HEADERS = {
+    "Content-Type": "application/json",
+    "X-Master-Key": MASTER_KEY
+}
 
 def load_data():
-    sheet = get_google_sheet()
-    data = {"tasks": [], "projects": [], "engineers": [], "users": {"manager": {}, "engineer": {}}}
-    
     try:
-        # Tasks
-        df = pd.DataFrame(sheet.worksheet("Tasks").get_all_records())
-        data["tasks"] = df.to_dict('records') if not df.empty else []
-        
-        # Projects
-        df = pd.DataFrame(sheet.worksheet("Projects").get_all_records())
-        data["projects"] = df.to_dict('records') if not df.empty else []
-        
-        # Engineers
-        df = pd.DataFrame(sheet.worksheet("Engineers").get_all_records())
-        data["engineers"] = df['name'].tolist() if not df.empty else []
-        
-        # Users
-        df = pd.DataFrame(sheet.worksheet("Users").get_all_records())
-        for _, row in df.iterrows():
-            role = str(row.get('role', '')).strip()
-            username = str(row.get('username', '')).strip()
-            if role and username:
-                data["users"][role][username] = {
-                    "password": str(row.get('password', '')),
-                    "role": role,
-                    "name": str(row.get('name', ''))
-                }
-    except Exception as e:
-        st.warning(f"Load warning: {str(e)[:100]}")
+        response = requests.get(f"{API_URL}/latest", headers=HEADERS)
+        if response.status_code == 200:
+            record = response.json()["record"]
+            data = {
+                "tasks": record.get("tasks", []),
+                "projects": record.get("projects", []),
+                "engineers": record.get("engineers", []),
+                "users": record.get("users", {"manager": {}, "engineer": {}})
+            }
+            return data
+        else:
+            st.warning("Could not load data from cloud. Using defaults.")
+    except:
+        st.warning("Connection issue. Using defaults.")
     
-    return data
+    # Default data
+    return {
+        "tasks": [],
+        "projects": [
+            {"name": "Mobile Banking App", "active": True},
+            {"name": "E-commerce Platform", "active": True},
+            {"name": "Internal CRM", "active": True},
+            {"name": "Payment Gateway", "active": True}
+        ],
+        "engineers": ["Alice Sharma", "Rahul Verma", "Priya Patel", "Arjun Rao", "Neha Gupta", "Vikram Singh"],
+        "users": {
+            "manager": {"pranav": {"password": "manager123", "role": "manager", "name": "PRANAV"}},
+            "engineer": {
+                "alice": {"password": "alice123", "role": "engineer", "name": "Alice Sharma"},
+                "rahul": {"password": "rahul123", "role": "engineer", "name": "Rahul Verma"}
+            }
+        }
+    }
 
 def save_data(data):
     try:
-        sheet = get_google_sheet()
-        
-        if data.get("tasks"):
-            df = pd.DataFrame(data["tasks"])
-            ws = sheet.worksheet("Tasks")
-            ws.clear()
-            ws.update([df.columns.tolist()] + df.values.tolist())
-        
-        if data.get("projects"):
-            df = pd.DataFrame(data["projects"])
-            ws = sheet.worksheet("Projects")
-            ws.clear()
-            ws.update([df.columns.tolist()] + df.values.tolist())
-        
-        if data.get("engineers"):
-            df = pd.DataFrame({"name": data["engineers"]})
-            ws = sheet.worksheet("Engineers")
-            ws.clear()
-            ws.update([df.columns.tolist()] + df.values.tolist())
-        
-        users_list = []
-        for role, user_dict in data.get("users", {}).items():
-            for username, info in user_dict.items():
-                users_list.append({
-                    "role": role,
-                    "username": username,
-                    "password": info.get("password", ""),
-                    "name": info.get("name", "")
-                })
-        if users_list:
-            df = pd.DataFrame(users_list)
-            ws = sheet.worksheet("Users")
-            ws.clear()
-            ws.update([df.columns.tolist()] + df.values.tolist())
-        
-        st.toast("✅ Data saved to Google Sheets", icon="✅")
-        return True
+        response = requests.put(API_URL, headers=HEADERS, json=data)
+        if response.status_code in [200, 201]:
+            st.toast("✅ Data saved successfully to cloud!", icon="✅")
+            return True
+        else:
+            st.error(f"Save failed. Status: {response.status_code}")
+            return False
     except Exception as e:
         st.error(f"Save failed: {str(e)}")
         return False
@@ -374,4 +346,4 @@ else:
     else:
         st.info("No tasks assigned to you.")
 
-st.caption("DailyForge • Google Sheets")
+st.caption("DailyForge • Persistent Storage via JSONBin")
