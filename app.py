@@ -5,11 +5,11 @@ import gspread
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== SIMPLE PUBLIC GOOGLE SHEET =====================
+# ===================== SIMPLE PUBLIC GOOGLE SHEET CONNECTION =====================
 @st.cache_resource
 def get_google_sheet():
     try:
-        # This is the simplest method
+        # Simple method using public sheet
         gc = gspread.service_account()
         sh = gc.open_by_url(st.secrets["spreadsheet_url"]["url"])
         st.sidebar.success("✅ Connected to Google Sheet")
@@ -23,15 +23,19 @@ def load_data():
     data = {"tasks": [], "projects": [], "engineers": [], "users": {"manager": {}, "engineer": {}}}
     
     try:
+        # Tasks
         df = pd.DataFrame(sheet.worksheet("Tasks").get_all_records())
         data["tasks"] = df.to_dict('records') if not df.empty else []
         
+        # Projects
         df = pd.DataFrame(sheet.worksheet("Projects").get_all_records())
         data["projects"] = df.to_dict('records') if not df.empty else []
         
+        # Engineers
         df = pd.DataFrame(sheet.worksheet("Engineers").get_all_records())
         data["engineers"] = df['name'].tolist() if not df.empty else []
         
+        # Users
         df = pd.DataFrame(sheet.worksheet("Users").get_all_records())
         for _, row in df.iterrows():
             role = str(row.get('role', '')).strip()
