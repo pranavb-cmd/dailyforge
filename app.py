@@ -2,20 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import gspread
-from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== GOOGLE SHEETS CONNECTION (Using Secrets) =====================
+# ===================== SIMPLE GOOGLE SHEET CONNECTION =====================
 @st.cache_resource
 def get_google_sheet():
     try:
-        # Create credentials from secrets
-        credentials = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        )
-        gc = gspread.authorize(credentials)
+        # Simple public access method
+        gc = gspread.service_account()
         sh = gc.open_by_url(st.secrets["spreadsheet_url"]["url"])
         st.sidebar.success("✅ Connected to Google Sheet")
         return sh
@@ -60,28 +55,24 @@ def save_data(data):
     try:
         sheet = get_google_sheet()
         
-        # Tasks
         if data.get("tasks"):
             df = pd.DataFrame(data["tasks"])
             ws = sheet.worksheet("Tasks")
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
-        # Projects
         if data.get("projects"):
             df = pd.DataFrame(data["projects"])
             ws = sheet.worksheet("Projects")
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
-        # Engineers
         if data.get("engineers"):
             df = pd.DataFrame({"name": data["engineers"]})
             ws = sheet.worksheet("Engineers")
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
-        # Users
         users_list = []
         for role, user_dict in data.get("users", {}).items():
             for username, info in user_dict.items():
@@ -97,13 +88,12 @@ def save_data(data):
             ws.clear()
             ws.update([df.columns.tolist()] + df.values.tolist())
         
-        st.success("✅ Data saved successfully to Google Sheets")
+        st.toast("✅ Data saved to Google Sheets", icon="✅")
         return True
     except Exception as e:
         st.error(f"Save failed: {str(e)}")
         return False
 
-# Load data
 data = load_data()
 
 # ===================== LOGIN =====================
@@ -240,7 +230,7 @@ if st.session_state.role == "manager":
                         st.success("✅ Task added successfully!")
                     st.rerun()
 
-    with tab3:  # Project Master
+    with tab3:
         st.title("📋 Project Master")
         for i, proj in enumerate(data["projects"]):
             col1, col2, col3 = st.columns([3, 1.5, 1])
@@ -275,7 +265,7 @@ if st.session_state.role == "manager":
                 st.success("✅ New Project added successfully!")
                 st.rerun()
 
-    with tab4:  # Engineer Master
+    with tab4:
         st.title("👷 Engineer Master")
         for i, eng in enumerate(data["engineers"]):
             col1, col2 = st.columns([4, 1])
