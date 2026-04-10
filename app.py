@@ -1,54 +1,93 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import json
-import os
-
-DATA_FILE = "daily_tasks.json"
+import gspread
 
 st.set_page_config(page_title="DailyForge", page_icon="🔥", layout="wide")
 
-# ===================== LOCAL JSON (Reliable Fallback) =====================
+# ===================== GOOGLE SHEETS CONNECTION =====================
+@st.cache_resource
+def get_google_sheet():
+    try:
+        gc = gspread.service_account()
+        sh = gc.open_by_url(st.secrets["spreadsheet_url"]["url"])
+        st.sidebar.success("✅ Connected to Google Sheet")
+        return sh
+    except Exception as e:
+        st.error(f"Google Sheet Connection Error: {str(e)}")
+        st.stop()
+
 def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-                loaded.setdefault("tasks", [])
-                loaded.setdefault("projects", [])
-                loaded.setdefault("engineers", [])
-                loaded.setdefault("users", {"manager": {}, "engineer": {}})
-                return loaded
-        except:
-            pass
-    # Default data
-    return {
-        "tasks": [],
-        "projects": [
-            {"name": "Mobile Banking App", "active": True},
-            {"name": "E-commerce Platform", "active": True},
-            {"name": "Internal CRM", "active": True},
-            {"name": "Payment Gateway", "active": True}
-        ],
-        "engineers": ["Alice Sharma", "Rahul Verma", "Priya Patel", "Arjun Rao", "Neha Gupta", "Vikram Singh"],
-        "users": {
-            "manager": {"pranav": {"password": "manager123", "role": "manager", "name": "PRANAV"}},
-            "engineer": {
-                "alice": {"password": "alice123", "role": "engineer", "name": "Alice Sharma"},
-                "rahul": {"password": "rahul123", "role": "engineer", "name": "Rahul Verma"},
-                "priya": {"password": "priya123", "role": "engineer", "name": "Priya Patel"},
-                "arjun": {"password": "arjun123", "role": "engineer", "name": "Arjun Rao"},
-                "neha": {"password": "neha123", "role": "engineer", "name": "Neha Gupta"},
-                "vikram": {"password": "vikram123", "role": "engineer", "name": "Vikram Singh"}
-            }
-        }
-    }
+    sheet = get_google_sheet()
+    data = {"tasks": [], "projects": [], "engineers": [], "users": {"manager": {}, "engineer": {}}}
+    
+    try:
+        # Tasks
+        df = pd.DataFrame(sheet.worksheet("Tasks").get_all_records())
+        data["tasks"] = df.to_dict('records') if not df.empty else []
+        
+        # Projects
+        df = pd.DataFrame(sheet.worksheet("Projects").get_all_records())
+        data["projects"] = df.to_dict('records') if not df.empty else []
+        
+        # Engineers
+        df = pd.DataFrame(sheet.worksheet("Engineers").get_all_records())
+        data["engineers"] = df['name'].tolist() if not df.empty else []
+        
+        # Users
+        df = pd.DataFrame(sheet.worksheet("Users").get_all_records())
+        for _, row in df.iterrows():
+            role = str(row.get('role', '')).strip()
+            username = str(row.get('username', '')).strip()
+            if role and username:
+                data["users"][role][username] = {
+                    "password": str(row.get('password', '')),
+                    "role": role,
+                    "name": str(row.get('name', ''))
+                }
+    except Exception as e:
+        st.warning(f"Load warning: {str(e)[:100]}")
+    
+    return data
 
 def save_data(data):
     try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        st.toast("✅ Data saved locally", icon="✅")
+        sheet = get_google_sheet()
+        
+        if data.get("tasks"):
+            df = pd.DataFrame(data["tasks"])
+            ws = sheet.worksheet("Tasks")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        if data.get("projects"):
+            df = pd.DataFrame(data["projects"])
+            ws = sheet.worksheet("Projects")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        if data.get("engineers"):
+            df = pd.DataFrame({"name": data["engineers"]})
+            ws = sheet.worksheet("Engineers")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        users_list = []
+        for role, user_dict in data.get("users", {}).items():
+            for username, info in user_dict.items():
+                users_list.append({
+                    "role": role,
+                    "username": username,
+                    "password": info.get("password", ""),
+                    "name": info.get("name", "")
+                })
+        if users_list:
+            df = pd.DataFrame(users_list)
+            ws = sheet.worksheet("Users")
+            ws.clear()
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        
+        st.toast("✅ Data saved to Google Sheets", icon="✅")
         return True
     except Exception as e:
         st.error(f"Save failed: {str(e)}")
@@ -186,8 +225,8 @@ if st.session_state.role == "manager":
                         "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
                     }
                     data["tasks"].append(new_task)
-                    save_data(data)
-                    st.success("✅ Task added successfully!")
+                    if save_data(data):
+                        st.success("✅ Task added successfully!")
                     st.rerun()
 
     with tab3:
@@ -335,4 +374,4 @@ else:
     else:
         st.info("No tasks assigned to you.")
 
-st.caption("DailyForge • Local JSON Mode (Data saved in daily_tasks.json)")
+st.caption("DailyForge • Google Sheets")
